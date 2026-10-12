@@ -67,7 +67,14 @@ case "\$*" in
     else
       role="read"
     fi
-    echo "{\"role_name\": \"\${role}\"}"
+    if [[ "\${role}" == custom:* ]]; then
+      custom_name="\${role#custom:}"
+      custom_perm="\${custom_name#*:}"
+      custom_name="\${custom_name%%:*}"
+      echo "{\"role_name\": \"\${custom_name}\", \"permission\": \"\${custom_perm}\"}"
+    else
+      echo "{\"role_name\": \"\${role}\", \"permission\": \"\${role}\"}"
+    fi
     ;;
   *"/issues/"*"/events"*)
     if [[ -f "${EVENTS_JSON}" ]]; then
@@ -179,6 +186,17 @@ export PR_AUTHOR_ASSOCIATION="COLLABORATOR"
 export PR_AUTHOR_LOGIN="author-read"
 output=$(run_auth 1 "test-org/test-repo")
 assert_unauthorized "author with read permission denied (even if COLLABORATOR)" "${output}"
+
+# Custom repository roles backed by write and read permissions
+set_role "author-custom-write" "custom:Developer:write"
+export PR_AUTHOR_LOGIN="author-custom-write"
+output=$(run_auth 1 "test-org/test-repo")
+assert_authorized "author with write-backed custom role is authorized" "${output}"
+
+set_role "author-custom-read" "custom:TriageSpecialist:read"
+export PR_AUTHOR_LOGIN="author-custom-read"
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "author with read-backed custom role is denied" "${output}"
 
 # External contributor without permissions denied
 export PR_AUTHOR_ASSOCIATION="CONTRIBUTOR"
