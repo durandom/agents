@@ -30,9 +30,14 @@ write_pr() {
   local assoc="${1:-CONTRIBUTOR}"
   local labels_json="${2:-[]}"
   local updated_at="${3:-2026-01-01T00:00:00Z}"
-  local login="${4:-some-author}"
-  jq -n --arg assoc "${assoc}" --argjson labels "${labels_json}" --arg updated_at "${updated_at}" --arg login "${login}" \
-    '{author_association: $assoc, labels: $labels, updated_at: $updated_at, user: {login: $login}}' > "${PR_JSON}"
+  local login="${4-some-author}"
+  if [[ -n "${login}" ]]; then
+    jq -n --arg assoc "${assoc}" --argjson labels "${labels_json}" --arg updated_at "${updated_at}" --arg login "${login}" \
+      '{author_association: $assoc, labels: $labels, updated_at: $updated_at, user: {login: $login}}' > "${PR_JSON}"
+  else
+    jq -n --arg assoc "${assoc}" --argjson labels "${labels_json}" --arg updated_at "${updated_at}" \
+      '{author_association: $assoc, labels: $labels, updated_at: $updated_at}' > "${PR_JSON}"
+  fi
 }
 
 write_events() {
@@ -220,6 +225,12 @@ export LABEL_ACTOR_LOGIN="maintainer"
 output=$(run_auth 1 "test-org/test-repo")
 assert_authorized "ok-to-test label by write maintainer is authorized" "${output}"
 
+# Labeled event without LABEL_ACTOR_LOGIN fails closed
+unset LABEL_ACTOR_LOGIN
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "labeled event without actor login is untrusted_labeler" "${output}" "untrusted_labeler"
+export LABEL_ACTOR_LOGIN="maintainer"
+
 # ok-to-test label applied by triage user is denied and untrusted_labeler
 set_role "triager" "triage"
 export LABEL_ACTOR_LOGIN="triager"
@@ -227,6 +238,12 @@ export CHECK_E2E_AUTH_DRY_RUN="true"
 output=$(run_auth 1 "test-org/test-repo")
 assert_unauthorized "ok-to-test by triage user is denied as untrusted_labeler" "${output}" "untrusted_labeler"
 unset EVENT_ACTION LABEL_ACTOR_LOGIN CHECK_E2E_AUTH_DRY_RUN
+
+# Missing author identity in both env and PR payload fails closed
+unset PR_AUTHOR_LOGIN PR_AUTHOR_ASSOCIATION
+write_pr "NONE" '[]' "2026-01-01T00:00:00Z" ""
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "missing author identity fails closed with error" "${output}" "error"
 
 # --- Warning annotations & error handling ---
 write_pr "CONTRIBUTOR" '[]'
