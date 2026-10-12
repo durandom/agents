@@ -239,6 +239,13 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+# Collaborator permission lookup failure returns error
+export MOCK_FAIL_PERM="true"
+export PR_AUTHOR_LOGIN="author-write"
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "author permission API failure returns error" "${output}" "error"
+unset MOCK_FAIL_PERM PR_AUTHOR_LOGIN
+
 # API failure (ERR trap)
 export MOCK_FAIL_PULLS="true"
 unset PR_AUTHOR_ASSOCIATION PR_AUTHOR_LOGIN
