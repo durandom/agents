@@ -117,7 +117,13 @@ assert_unauthorized() {
   local test_name="$1"
   local output="$2"
   local expected_reason="${3:-unauthorized}"
+  local expected_removed="${4:-}"
   if echo "${output}" | grep -q "authorized=false" && echo "${output}" | grep -q "reason=${expected_reason}"; then
+    if [[ -n "${expected_removed}" ]] && ! echo "${output}" | grep -q "label_removed=${expected_removed}"; then
+      echo "FAIL: ${test_name} — expected label_removed=${expected_removed}, got: ${output}"
+      FAILURES=$((FAILURES + 1))
+      return
+    fi
     echo "PASS: ${test_name}"
   else
     echo "FAIL: ${test_name} — expected authorized=false reason=${expected_reason}, got: ${output}"
@@ -175,16 +181,38 @@ export PR_AUTHOR_LOGIN="random-contributor"
 output=$(run_auth 1 "test-org/test-repo")
 assert_unauthorized "CONTRIBUTOR without bot login is unauthorized" "${output}"
 
-# --- ok-to-test and synchronize tests ---
-# Synchronize with existing ok-to-test label is invalidated
+# --- ok-to-test lifecycle ---
+# Only a labeled event approves. A label that postdates this event stays for
+# that workflow; an older label is removed.
 write_pr "CONTRIBUTOR" '[{"name":"ok-to-test"}]' "2026-01-01T10:00:00Z" "random-contributor"
 write_events '[{"event":"labeled","label":{"name":"ok-to-test"},"created_at":"2026-01-01T11:00:00Z","actor":{"login":"maintainer"}}]'
 set_role "maintainer" "write"
 export EVENT_ACTION="synchronize"
+export PR_UPDATED_AT="2026-01-01T10:00:00Z"
 export CHECK_E2E_AUTH_DRY_RUN="true"
 output=$(run_auth 1 "test-org/test-repo")
-assert_unauthorized "synchronize with existing ok-to-test invalidates approval" "${output}" "stale_ok_to_test"
-unset EVENT_ACTION CHECK_E2E_AUTH_DRY_RUN
+assert_unauthorized "synchronize keeps a label applied after the push" "${output}" "fresh_ok_to_test" "false"
+if echo "${output}" | grep -q '::warning::'; then
+  echo "FAIL: fresh label on synchronize should stay quiet — got: ${output}"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "PASS: fresh label on synchronize stays quiet"
+fi
+
+export PR_UPDATED_AT="2026-01-01T12:00:00Z"
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "synchronize removes ok-to-test applied before the push" "${output}" "stale_ok_to_test" "true"
+
+export EVENT_ACTION="reopened"
+export PR_UPDATED_AT="2026-01-01T10:00:00Z"
+export LABEL_ACTOR_LOGIN="maintainer"
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "reopened run does not approve a newer ok-to-test label" "${output}" "fresh_ok_to_test" "false"
+
+export PR_UPDATED_AT="2026-01-01T12:00:00Z"
+output=$(run_auth 1 "test-org/test-repo")
+assert_unauthorized "reopened run removes an older ok-to-test label" "${output}" "stale_ok_to_test" "true"
+unset EVENT_ACTION PR_UPDATED_AT LABEL_ACTOR_LOGIN CHECK_E2E_AUTH_DRY_RUN
 
 # Fresh ok-to-test label by write maintainer on labeled event is authorized
 export EVENT_ACTION="labeled"

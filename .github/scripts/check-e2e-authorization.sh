@@ -2,13 +2,18 @@
 # check-e2e-authorization.sh — Decide whether a PR may run e2e tests in CI.
 #
 # Authorized when the PR author is a trusted bot, when the collaborator
-# permission API confirms write+ access (admin, maintain, write), or when a
-# fresh ok-to-test label was applied by a user with write+ access after the
-# latest push.
+# permission API confirms write+ access (admin, maintain, write), or when this
+# run is an ok-to-test labeled event from a user with write+ access.
 #
 # Do not base trust on author_association: GitHub reports MEMBER or COLLABORATOR
 # for users with read or triage roles, which must not run credentialed CI.
 # Trust is based strictly on the collaborator permission API (write, maintain, admin).
+#
+# A retained ok-to-test label does not approve opened, synchronize, reopened,
+# or any other event. On those events a label that does not postdate the
+# frozen PR updated_at (PR_UPDATED_AT) is removed. A label applied after that
+# timestamp is left for the labeled workflow and does not authorize this run
+# (reason=fresh_ok_to_test). Does not use committer.date (author-controlled).
 #
 # Security tradeoff: trusted bots bypass the ok-to-test label gate entirely.
 # A compromise of the bot's GitHub App credentials would auto-qualify its PRs
@@ -115,14 +120,12 @@ else
   has_ok_label="$(jq -r --arg label "${OK_TO_TEST_LABEL}" '[.labels[].name] | index($label) != null' <<<"${pr_json}")"
 
   if [[ "${has_ok_label}" == "true" ]]; then
-    if [[ "${EVENT_ACTION:-}" == "synchronize" ]]; then
-      # New commits invalidate previous approvals until re-approved.
-      remove_ok_to_test_label
-      reason="stale_ok_to_test"
-    elif [[ "${EVENT_ACTION:-}" == "labeled" ]]; then
+    if [[ "${EVENT_ACTION:-}" == "labeled" ]]; then
       authorized=true
       reason="ok_to_test"
     else
+      # Only the labeled event approves a run. An older label is stale.
+      # A label applied after this event belongs to the labeled workflow.
       events_json="$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/events" --paginate | jq -s 'add // []')"
       ok_to_test_at="$(jq -r --arg label "${OK_TO_TEST_LABEL}" '
         [.[] | select(.event == "labeled" and (.label.name // "") == $label) | .created_at] | max // empty
@@ -130,12 +133,13 @@ else
 
       last_push_at="${PR_UPDATED_AT:-}"
       if [[ -z "${last_push_at}" ]]; then
+        # Fallback: live updated_at is noisy (bumped by comments, labels, etc.).
+        # Prefer the frozen event-payload value (PR_UPDATED_AT).
         last_push_at="$(jq -r '.updated_at // empty' <<<"${pr_json}")"
       fi
 
       if [[ -n "${ok_to_test_at}" && -n "${last_push_at}" && "${ok_to_test_at}" > "${last_push_at}" ]]; then
-        authorized=true
-        reason="ok_to_test"
+        reason="fresh_ok_to_test"
       else
         remove_ok_to_test_label
         reason="stale_ok_to_test"
@@ -193,7 +197,9 @@ fi
 
 trap - ERR
 
-if [[ "${authorized}" != "true" ]]; then
+# fresh_ok_to_test leaves the label for the labeled workflow. Stay quiet so
+# this run does not announce that tests were skipped.
+if [[ "${authorized}" != "true" && "${reason}" != "fresh_ok_to_test" ]]; then
   emit_denial_warning "${reason}"
 fi
 
