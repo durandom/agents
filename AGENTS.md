@@ -47,12 +47,12 @@ This repository is versioned in lockstep with [fullsend](https://github.com/full
 
 - `fullsend.yaml` — Centrally managed by fullsend for agent event dispatch. Do not modify without coordinating with the fullsend repo.
 - `release.yml` — Triggered by semver tag pushes from fullsend's release workflow. Creates a GitHub Release whose notes link the fullsend release and list the PRs merged since the previous final release, and moves the `v0` floating tag.
-- `notify-agent-sync.yml` — Dispatches cross-repo agent digest sync to `fullsend-ai/.fullsend` on push to `main`.
-- **The `v0` tag** is a floating tag pointing to the latest stable release. Pre-releases (`-rc.N`, `-alpha.N`, `-beta.N`) do not move `v0`.
+- `notify-agent-sync.yml` — Dispatches cross-repo agent digest sync to `fullsend-ai/.fullsend` on push to `main`. Requires `SYNC_CLIENT_ID` variable, `SYNC_PRIVATE_KEY` secret (the fullsend-ai-sync GitHub App), and `SLACK_WEBHOOK_URL` secret (for failure alerts).
+- **The `v0` tag** is a floating tag that always points to the latest stable release. Downstream consumers can reference `@v0` to track the latest release. Pre-releases (`-rc.N`, `-alpha.N`, `-beta.N`) do not move `v0`.
 
 ## 7. Skill resolution
 
-Skills listed in harness `skills:` arrays resolve at runtime in priority order: repo-level (`.agents/skills/`), then upstream platform (`fullsend-ai/fullsend/skills/`). A skill reference is valid even if no matching directory exists in this repo.
+Skills listed in harness `skills:` arrays resolve at runtime in priority order: repo-level (`.agents/skills/`), then upstream platform (`fullsend-ai/fullsend/skills/`). A skill reference is valid even if no matching directory exists in this repo. Do not treat missing local skill directories as bugs without first verifying the skill does not exist at platform level.
 
 To override an upstream skill, create a custom harness with `base:` composition pointing to the upstream harness and include the replacement skill in `skills:`. The override path's basename must match the upstream skill's basename so `mergeSkills` dedupes by basename and yours wins. For example:
 
@@ -82,6 +82,6 @@ Do not flag these standard fields as code-organization concerns.
 
 A literal value in a harness `env.runner`/`env.sandbox` block (e.g. `REVIEW_FINDING_SEVERITY_THRESHOLD: "low"` in [`harness/review.yaml`](harness/review.yaml)) is the intended shape for a static agent-behavior-tuning default per fullsend [ADR 0080](https://github.com/fullsend-ai/fullsend/blob/main/docs/ADRs/0080-config-yaml-vs-agent-env-var-scope.md) and [ADR 0081](https://github.com/fullsend-ai/fullsend/blob/main/docs/ADRs/0081-reserve-workflow-env-for-infra-plumbing.md). The only supported override path is extending via `base:` composition.
 
-- **Do not** turn static defaults into `${VAR}` passthrough or move them to workflow `env:` blocks. (Workflow env is reserved for infra plumbing, with the sole ADR 0081 exception of values computed at CI runtime from `github.event.*`, matrix vars, or non-static secrets.)
-- **Computed runtime values** (such as `REVIEW_TOKEN`, `PR_NUMBER`, and `PR_URL` in `forge.<platform>.env.runner` blocks, and `REPO_FULL_NAME`) must remain `${VAR}` passthrough. `CODE_ALLOWED_TARGET_BRANCHES` is read directly by `post-code.sh` and should not be mapped through [`harness/code.yaml`](harness/code.yaml)'s `env.runner`.
+- **Do not** turn static defaults into `${VAR}` passthrough (harness env blocks resolve `${VAR}` as host-variable expansion, not shell defaulting — it changes semantics, and it will fail when the referenced host variable is unset or when unsupported defaulting syntax like `${VAR:-default}` is used) or into a CI workflow `env:` block. (Workflow env is reserved for infra plumbing, with the sole ADR 0081 exception of values computed at CI runtime from `github.event.*`, matrix vars, or non-static secrets.)
+- **Computed runtime values** (such as branch lists, tokens, and PR/issue numbers including `REVIEW_TOKEN`, `PR_NUMBER`, and `PR_URL` in `forge.<platform>.env.runner` blocks, and `REPO_FULL_NAME` at top-level `env.runner` when identical across forges) must remain `${VAR}` passthrough. `CODE_ALLOWED_TARGET_BRANCHES` is an exception: it is optional and read directly by `post-code.sh` when supplied, so do not map it through [`harness/code.yaml`](harness/code.yaml)'s `env.runner`.
 - **When reviewing PRs:** Do not flag static literal defaults as hardcoded mistakes, but do flag regressions that replace computed passthrough values with literals.
