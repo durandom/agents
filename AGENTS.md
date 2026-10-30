@@ -30,7 +30,7 @@ Read and follow [COMMITS.md](COMMITS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) 
 - **`ci(...)` vs `fix(...)` / `feat(...)`:** CI and test pipeline changes are infrastructure, not user-facing features or bug fixes. Per `.gitlint` rules (`gitlint_rules/forbidden_type_scope.py`), `fix(ci)`, `feat(ci)`, `fix(e2e)`, and `feat(e2e)` are forbidden — use `ci(...)` instead.
 - **Breaking changes:** Must carry the `!` suffix (e.g. `feat(harness)!: ...`) in the commit subject and PR title, plus a `BREAKING CHANGE:` trailer in the commit body (see [COMMITS.md](COMMITS.md)).
 - **DCO sign-off:** See [CONTRIBUTING.md#dco-developer-certificate-of-origin](CONTRIBUTING.md#dco-developer-certificate-of-origin).
-  - Human contributors and human-driven / interactive agent sessions **must** sign off commits with `git commit -s` (adding `Signed-off-by:` for the author or committer).
+  - Human contributors and human-driven / interactive agent sessions **must** sign off commits with `git commit -s` (the `Signed-off-by:` line must match the commit author's name and email; `git commit -s` uses the committer identity, so author and committer must match).
   - Fullsend pipeline agents (`code`, `fix`, etc.) are autonomous even when triggered by a human command and **MUST NOT** use `git commit -s` or add `Signed-off-by`. Their commits use the bot identity auto-skipped by the DCO app.
 - **Review:** When reviewing PRs, flag commits or PR titles that violate Conventional Commits, use forbidden type/scope combinations, or omit required breaking-change markers.
 
@@ -41,7 +41,7 @@ Convert the issue into verifiable success criteria before writing code:
 - **Behaviour:** State what must change and what must stay the same, and which new or existing tests prove it.
 - **Linting:**
   - Human contributors: Always stage changes and run `pre-commit run --all-files` and `make lint` locally before pushing (`make lint-fix` applies skillsaw automatic fixes).
-  - Autonomous agent sessions: Follow the `code-implementation` skill's in-sandbox lint procedure (`pre-commit run --files <changed-files>` within the time budget; the post-script runs the authoritative check).
+  - Autonomous agent sessions: Follow your run's verification skill (`code-implementation` for code runs, `fix-verification` step 7b for fix runs); the post-script runs the authoritative check.
 - **Bundled scripts:** When editing `scripts/*.src.sh`, run `make script-build` and verify with `make check-bundle`.
 - **Tests:** Run `make test` (or `make script-test`) for shell script unit tests.
 - **Authorization gates:** When touching authorization gates or trusted-actor rules, run `bash .github/scripts/check-e2e-authorization-test.sh`.
